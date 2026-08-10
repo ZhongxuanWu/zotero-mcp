@@ -1,0 +1,12 @@
+temp.txt
+
+node_modules/
+dist/
+coverage/
+.package-check-*/
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

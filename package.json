@@ -1,0 +1,66 @@
+{
+  "name": "@zhongxuanwu/zotero-mcp",
+  "version": "0.1.0",
+  "description": "A local, read-only MCP server for Zotero libraries",
+  "type": "module",
+  "bin": {
+    "zotero-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package:check": "node scripts/package-check.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run package:check",
+    "prepack": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZhongxuanWu/zotero-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ZhongxuanWu/zotero-mcp/issues"
+  },
+  "homepage": "https://github.com/ZhongxuanWu/zotero-mcp#readme",
+  "author": {
+    "name": "Zhongxuan Wu",
+    "url": "https://github.com/ZhongxuanWu"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "zotero",
+    "codex",
+    "research"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^20.19.0",
+    "eslint": "^9.39.0",
+    "prettier": "^3.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.0.0"
+  }
+}
