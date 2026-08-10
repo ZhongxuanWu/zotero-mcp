@@ -196,10 +196,7 @@ Never use a production or write-enabled key in automated tests or CI.
 ## Acknowledgement
 
 This project was inspired by
-[`yilewang/llm-for-zotero`](https://github.com/yilewang/llm-for-zotero). This is
-an independent implementation with a different architecture and scope; no
-source code from that repository was copied.
-
+[`yilewang/llm-for-zotero`](https://github.com/yilewang/llm-for-zotero).
 ## License
 
 [MIT](LICENSE)
