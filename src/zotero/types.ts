@@ -1,7 +1,13 @@
 export type ZoteroSearchMode = "titleCreatorYear" | "everything";
 
+export interface LibraryLocator {
+  type: "user" | "group";
+  id: number;
+}
+
 export interface ZoteroClientOptions {
-  apiKey: string;
+  apiKey?: string;
+  library?: LibraryLocator;
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
   timeoutMs?: number;

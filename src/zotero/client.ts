@@ -1,5 +1,7 @@
 import { ZoteroApiError } from "./errors.js";
+import { libraryApiPath, requireLibraryLocator } from "./library.js";
 import type {
+  LibraryLocator,
   ZoteroClientOptions,
   ZoteroFulltext,
   ZoteroItem,
@@ -140,7 +142,8 @@ function validateFulltext(value: unknown): ZoteroFulltext {
 }
 
 export class ZoteroClient {
-  readonly #apiKey: string;
+  readonly #apiKey: string | undefined;
+  readonly #library: LibraryLocator | undefined;
   readonly #fetch: typeof globalThis.fetch;
   readonly #baseUrl: string;
   readonly #timeoutMs: number;
@@ -154,11 +157,15 @@ export class ZoteroClient {
   #requestQueue: Promise<void> = Promise.resolve();
 
   constructor(options: ZoteroClientOptions) {
-    const apiKey = options.apiKey.trim();
-    if (apiKey.length === 0) {
+    const apiKey = options.apiKey?.trim() || undefined;
+    const library =
+      options.library === undefined
+        ? undefined
+        : requireLibraryLocator(options.library);
+    if (apiKey === undefined && library === undefined) {
       throw new ZoteroApiError(
         "authentication_failed",
-        "A Zotero API key is required.",
+        "A Zotero API key is required when no library is configured.",
       );
     }
     if (
@@ -181,6 +188,7 @@ export class ZoteroClient {
     }
 
     this.#apiKey = apiKey;
+    this.#library = library;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -210,7 +218,7 @@ export class ZoteroClient {
     options: ZoteroSearchItemsOptions = {},
   ): Promise<ZoteroPage<ZoteroItem>> {
     const page = requirePageOptions(options);
-    const user = await this.getCurrentUser();
+    const libraryPath = await this.#getLibraryPath();
     const query = new URLSearchParams({
       limit: String(page.limit),
       start: String(page.start),
@@ -225,14 +233,14 @@ export class ZoteroClient {
       for (const tag of tags) query.append("tag", tag);
     }
 
-    return this.#getItemsPage(`/users/${user.userID}/items/top`, query, page);
+    return this.#getItemsPage(`${libraryPath}/items/top`, query, page);
   }
 
   async getItem(itemKey: string): Promise<ZoteroItem> {
     const key = requireItemKey(itemKey);
-    const user = await this.getCurrentUser();
+    const libraryPath = await this.#getLibraryPath();
     const result = await this.#requestJson<unknown>(
-      `/users/${user.userID}/items/${encodeURIComponent(key)}`,
+      `${libraryPath}/items/${encodeURIComponent(key)}`,
     );
     return validateItem(result.data);
   }
@@ -243,14 +251,14 @@ export class ZoteroClient {
   ): Promise<ZoteroPage<ZoteroItem>> {
     const key = requireItemKey(itemKey);
     const page = requirePageOptions(options);
-    const user = await this.getCurrentUser();
+    const libraryPath = await this.#getLibraryPath();
     const query = new URLSearchParams({
       limit: String(page.limit),
       start: String(page.start),
     });
 
     return this.#getItemsPage(
-      `/users/${user.userID}/items/${encodeURIComponent(key)}/children`,
+      `${libraryPath}/items/${encodeURIComponent(key)}/children`,
       query,
       page,
     );
@@ -258,11 +266,20 @@ export class ZoteroClient {
 
   async getFulltext(attachmentKey: string): Promise<ZoteroFulltext> {
     const key = requireItemKey(attachmentKey);
-    const user = await this.getCurrentUser();
+    const libraryPath = await this.#getLibraryPath();
     const result = await this.#requestJson<unknown>(
-      `/users/${user.userID}/items/${encodeURIComponent(key)}/fulltext`,
+      `${libraryPath}/items/${encodeURIComponent(key)}/fulltext`,
     );
     return validateFulltext(result.data);
+  }
+
+  async #getLibraryPath(): Promise<string> {
+    if (this.#library !== undefined) {
+      return libraryApiPath(this.#library);
+    }
+
+    const user = await this.getCurrentUser();
+    return libraryApiPath({ type: "user", id: user.userID });
   }
 
   async #discoverCurrentUser(): Promise<ZoteroKeyInfo> {
@@ -411,13 +428,17 @@ export class ZoteroClient {
     }, this.#timeoutMs);
 
     try {
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        "Zotero-API-Version": "3",
+      };
+      if (this.#apiKey !== undefined) {
+        headers["Zotero-API-Key"] = this.#apiKey;
+      }
+
       return await this.#fetch(url, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          "Zotero-API-Key": this.#apiKey,
-          "Zotero-API-Version": "3",
-        },
+        headers,
         signal: controller.signal,
       });
     } catch {
@@ -473,7 +494,7 @@ export class ZoteroClient {
       case 403:
         return new ZoteroApiError(
           "authentication_failed",
-          "Zotero rejected the API key or its permissions.",
+          "Zotero denied access to the configured library. It may be private, or the API key may be missing, invalid, or lack permission.",
           options,
         );
       case 404:

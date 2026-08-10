@@ -1,0 +1,35 @@
+name: Public Zotero end-to-end
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-zotero-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-zotero-e2e:
+    name: Packed artifact / public library
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test packed artifact against public Zotero
+        run: npm run test:e2e:public

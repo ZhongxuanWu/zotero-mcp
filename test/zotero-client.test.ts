@@ -66,6 +66,15 @@ afterEach(() => {
 });
 
 describe("ZoteroClient authentication and requests", () => {
+  it("requires either an API key or an explicit library", () => {
+    expect(() => new ZoteroClient({})).toThrowError(
+      expect.objectContaining({
+        name: "ZoteroApiError",
+        code: "authentication_failed",
+      }),
+    );
+  });
+
   it("discovers and caches the current user while authenticating with headers", async () => {
     const fetchMock = mockFetch(
       keyResponse(),
@@ -96,6 +105,79 @@ describe("ZoteroClient authentication and requests", () => {
     expect(headers.get("Zotero-API-Version")).toBe("3");
     expect(headers.get("Accept")).toBe("application/json");
     expect(String(keyInput)).not.toContain(API_KEY);
+  });
+
+  it("reads an explicit public group without key discovery or authentication headers", async () => {
+    const parent = item("PARENT01");
+    const attachment = item("ATTACH01", "attachment", {
+      parentItem: "PARENT01",
+      contentType: "application/pdf",
+    });
+    const fetchMock = mockFetch(
+      jsonResponse([parent], { headers: { "Total-Results": "1" } }),
+      jsonResponse(parent),
+      jsonResponse([attachment], { headers: { "Total-Results": "1" } }),
+      jsonResponse({ content: "Public indexed text" }),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      fetch: fetchMock,
+    });
+
+    await client.searchItems();
+    await client.getItem("PARENT01");
+    await client.getItemChildren("PARENT01");
+    await client.getFulltext("ATTACH01");
+
+    expect(
+      vi
+        .mocked(fetchMock)
+        .mock.calls.map(([input]) => new URL(String(input)).pathname),
+    ).toEqual([
+      "/groups/98765/items/top",
+      "/groups/98765/items/PARENT01",
+      "/groups/98765/items/PARENT01/children",
+      "/groups/98765/items/ATTACH01/fulltext",
+    ]);
+    for (const [, init] of vi.mocked(fetchMock).mock.calls) {
+      const headers = new Headers(init?.headers);
+      expect(headers.has("Zotero-API-Key")).toBe(false);
+      expect(headers.get("Zotero-API-Version")).toBe("3");
+    }
+  });
+
+  it("optionally authenticates requests to an explicit user library", async () => {
+    const fetchMock = mockFetch(
+      jsonResponse([], { headers: { "Total-Results": "0" } }),
+    );
+    const client = new ZoteroClient({
+      apiKey: API_KEY,
+      library: { type: "user", id: 24680 },
+      fetch: fetchMock,
+    });
+
+    await client.searchItems();
+
+    expect(requestedUrl(fetchMock, 0).pathname).toBe("/users/24680/items/top");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = vi.mocked(fetchMock).mock.calls[0] ?? [];
+    expect(new Headers(init?.headers).get("Zotero-API-Key")).toBe(API_KEY);
+  });
+
+  it("rejects invalid programmatic library locators", () => {
+    for (const library of [
+      { type: "group", id: 0 },
+      { type: "group", id: -1 },
+      { type: "group", id: 1.5 },
+      { type: "collection", id: 123 },
+    ]) {
+      expect(
+        () =>
+          new ZoteroClient({
+            library: library as never,
+          }),
+      ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    }
   });
 
   it("rejects keys without personal-library read permission", async () => {

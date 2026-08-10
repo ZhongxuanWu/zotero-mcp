@@ -20,6 +20,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:e2e:public": "node scripts/public-e2e.mjs",
     "test:watch": "vitest",
     "package:check": "node scripts/package-check.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run package:check",

@@ -21,7 +21,7 @@ export function registerZoteroTools(
     {
       title: "Search Zotero items",
       description:
-        "Search and paginate top-level items in the user's personal Zotero library. Returns compact metadata; use zotero_get_item for full item data.",
+        "Search and paginate top-level items in the configured Zotero library. Returns compact metadata; use zotero_get_item for full item data.",
       inputSchema: searchItemsInputSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },

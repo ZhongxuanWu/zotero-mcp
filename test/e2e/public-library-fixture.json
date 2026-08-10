@@ -1,0 +1,14 @@
+{
+  "groupId": null,
+  "item": {
+    "title": "Zotero MCP Public E2E Fixture 2026-08",
+    "itemType": "report",
+    "tag": "zotero-mcp-public-e2e"
+  },
+  "attachment": {
+    "filename": "zotero-mcp-public-e2e-fixture.pdf",
+    "searchMarker": "ZOTEROMCPE2ESEARCH7F3A9C",
+    "firstChunkMarker": "ZOTEROMCPE2EOPENING4D8B2E",
+    "continuationMarker": "ZOTEROMCPE2ECONTINUATION9C1F6A"
+  }
+}
