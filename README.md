@@ -1,20 +1,20 @@
 # zotero-mcp
 
 `zotero-mcp` is a local, read-only Model Context Protocol (MCP) server for a
-configured Zotero library. An MCP client such as Codex starts it as a child
-process and communicates over standard input/output. The process reads
-synchronized library data from the Zotero Web API over HTTPS; this project does
-not operate a hosted relay or account service.
+configured Zotero library. A coding agent such as Codex CLI or Claude Code
+starts it as a child process and communicates over standard input/output. The
+process reads synchronized library data from the Zotero Web API over HTTPS;
+this project does not operate a hosted relay or account service.
 
 ```text
-Codex or another MCP client  <-- local stdio -->  zotero-mcp
-                                                    |
-                                                    +-- HTTPS --> api.zotero.org
+Codex CLI, Claude Code, or another MCP client  <-- local stdio -->  zotero-mcp
+                                                                    |
+                                                                    +-- HTTPS --> api.zotero.org
 ```
 
-> **Pre-release:** the package is not yet published to npm. Build and run it
-> from source today. The `npx` and global-install examples below describe the
-> intended package interface after the first release.
+> **Pre-release:** this package is not published to npm and will remain
+> source-only for now. Clone the repository, install its dependencies, and
+> build it locally by following the instructions below.
 
 ## Supported tools
 
@@ -50,7 +50,46 @@ if it has several, the tool returns candidates. Results include truncation,
 
 All four tools are read-only.
 
-## Configuration
+## Pre-release installation
+
+Git, npm, and Node.js 20 or newer are required.
+
+### Download the source
+
+```bash
+git clone https://github.com/ZhongxuanWu/zotero-mcp.git
+cd zotero-mcp
+```
+
+### Install and build
+
+Install the locked dependencies, compile TypeScript into `dist`, and verify the
+built command:
+
+```bash
+npm ci
+npm run build
+node dist/cli.js --help
+```
+
+Coding-agent configurations must use an absolute path to `dist/cli.js`. On
+macOS or Linux, run `pwd` from the repository root to get the checkout path. On
+PowerShell, run `Resolve-Path .`.
+
+### Update an existing checkout
+
+Pull the latest source, synchronize dependencies, and rebuild:
+
+```bash
+git pull --ff-only
+npm ci
+npm run build
+```
+
+Rebuilding updates the existing `dist/cli.js`; coding-agent configuration does
+not need to change while the checkout stays at the same path.
+
+## Zotero configuration
 
 Library selection and authentication are separate:
 
@@ -64,9 +103,9 @@ Library selection and authentication are separate:
   library. The server sends an API-key header only when a non-empty key is
   present.
 
-Run `zotero-mcp --help` for the complete CLI syntax. Invalid selectors, such as
-unknown library types, zero, negative, or non-numeric IDs, are rejected before
-the MCP server starts.
+Run `node dist/cli.js --help` from the checkout for the complete CLI syntax.
+Invalid selectors, such as unknown library types, zero, negative, or
+non-numeric IDs, are rejected before the MCP server starts.
 
 ### Private personal library
 
@@ -93,8 +132,10 @@ For a public user or group library, pass its numeric Zotero ID explicitly and
 do not set `ZOTERO_API_KEY`:
 
 ```bash
-zotero-mcp --library group:<public-group-id>
-zotero-mcp --library user:<public-user-id>
+node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --library "group:<public-group-id>"
+node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --library "user:<public-user-id>"
 ```
 
 Replace the angle-bracketed value with a positive integer. Whether a library
@@ -109,8 +150,11 @@ Use `zotero_list_collections` without collection focus to discover stable
 collection keys. Then add `--collection <key>` and restart the MCP server:
 
 ```bash
-zotero-mcp --collection ABCD1234
-zotero-mcp --library group:<group-id> --collection ABCD1234
+node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --collection ABCD1234
+node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --library "group:<group-id>" \
+  --collection ABCD1234
 ```
 
 The first form uses the personal library discovered from `ZOTERO_API_KEY`; the
@@ -124,135 +168,118 @@ focused tree; child notes and attachments remain accessible when their parent
 item is in scope. `zotero_list_collections` lists only the focused tree after
 the option is configured.
 
-## Run from source (available now)
+The commands above start an MCP stdio process directly. Waiting silently for
+protocol input is normal; in regular use, let a configured coding agent start
+the process.
 
-Node.js 20 or newer is required.
+## Coding agent configuration
 
-```bash
-git clone https://github.com/ZhongxuanWu/zotero-mcp.git
-cd zotero-mcp
-npm ci
-npm run build
-```
+The examples below use the locally built entry point. Replace
+`/absolute/path/to/zotero-mcp` with the absolute path to your checkout,
+`<user-id>` or `<group-id>` with a positive numeric Zotero library ID, and
+`ABCD1234` with an eight-character collection key.
 
-For a private personal library, point the client at the built entry point and
-forward the key. A Codex configuration in `~/.codex/config.toml` looks like:
+For a private library, export `ZOTERO_API_KEY` before starting the coding agent.
+For a public library, use an explicit `--library` selector and omit the key.
+
+### Codex CLI
+
+Codex stores MCP servers in `~/.codex/config.toml`. For a private user library
+focused on one collection, add:
 
 ```toml
 [mcp_servers.zotero]
 command = "node"
-args = ["/absolute/path/to/zotero-mcp/dist/cli.js"]
+args = [
+  "/absolute/path/to/zotero-mcp/dist/cli.js",
+  "--library",
+  "user:<user-id>",
+  "--collection",
+  "ABCD1234",
+]
 env_vars = ["ZOTERO_API_KEY"]
 ```
 
-To focus that private library on one collection, append the collection option:
+When the key belongs to the personal library you want to use, you may omit the
+`--library` pair and let the server discover the user ID from the key. To use a
+private group, change the selector to `group:<group-id>` and retain
+`env_vars = ["ZOTERO_API_KEY"]`.
+
+For a credential-free public group and collection, add a separate server and
+omit `env_vars`:
 
 ```toml
+[mcp_servers.zotero_public]
+command = "node"
 args = [
   "/absolute/path/to/zotero-mcp/dist/cli.js",
+  "--library",
+  "group:<group-id>",
   "--collection",
   "ABCD1234",
 ]
 ```
 
-For a public group, use the selector instead and omit secret forwarding:
-
-```toml
-[mcp_servers.zotero_public]
-command = "node"
-args = [
-  "/absolute/path/to/zotero-mcp/dist/cli.js",
-  "--library",
-  "group:<public-group-id>",
-]
-```
-
-Restart Codex after changing its configuration. Other MCP clients can use the
-same command, arguments, and environment in their local stdio-server format.
-
-You can also start `node dist/cli.js` directly for diagnostics. It is an MCP
-stdio process, so waiting silently for protocol input is normal.
-
-## Use the published package (after release)
-
-These commands will apply once `@zhongxuanwu/zotero-mcp` is published; they do
-not work as installation instructions during the current pre-release phase.
-
-### Codex
-
-Private personal library:
-
-```toml
-[mcp_servers.zotero]
-command = "npx"
-args = ["-y", "@zhongxuanwu/zotero-mcp"]
-env_vars = ["ZOTERO_API_KEY"]
-```
-
-Credential-free public group:
-
-```toml
-[mcp_servers.zotero_public]
-command = "npx"
-args = [
-  "-y",
-  "@zhongxuanwu/zotero-mcp",
-  "--library",
-  "group:<public-group-id>",
-]
-```
-
-Export `ZOTERO_API_KEY` before starting Codex for the private configuration.
-`env_vars` forwards the existing value without copying it into `config.toml`.
-
-### Other MCP clients
-
-Private personal library, using the common JSON configuration shape:
-
-```json
-{
-  "mcpServers": {
-    "zotero": {
-      "command": "npx",
-      "args": ["-y", "@zhongxuanwu/zotero-mcp"],
-      "env": {
-        "ZOTERO_API_KEY": "your-read-only-key"
-      }
-    }
-  }
-}
-```
-
-Credential-free public group:
-
-```json
-{
-  "mcpServers": {
-    "zotero-public": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@zhongxuanwu/zotero-mcp",
-        "--library",
-        "group:<public-group-id>"
-      ]
-    }
-  }
-}
-```
-
-Configuration formats differ among clients. Prefer environment or secret
-forwarding when the client supports it. If a client requires a key in its
-configuration, keep that file private and never commit it.
-
-After release, a global installation will also be available:
+Export the key before launching Codex for a private library:
 
 ```bash
-npm install --global @zhongxuanwu/zotero-mcp
-zotero-mcp --help
+export ZOTERO_API_KEY="your-read-only-key"
+codex
 ```
 
-Use `command = "zotero-mcp"` in place of `npx` when globally installed.
+PowerShell:
+
+```powershell
+$env:ZOTERO_API_KEY = "your-read-only-key"
+codex
+```
+
+Restart an active Codex session after changing `config.toml`. Run
+`codex mcp list` from the shell or `/mcp` inside Codex to verify the connection.
+See the official [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp.md)
+for additional configuration options.
+
+### Claude Code
+
+The following command adds a private, collection-focused server at user scope,
+making it available across your local Claude Code projects. Export
+`ZOTERO_API_KEY` first, as shown above:
+
+```bash
+claude mcp add \
+  --env ZOTERO_API_KEY="$ZOTERO_API_KEY" \
+  --transport stdio \
+  --scope user \
+  zotero \
+  -- node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --library "user:<user-id>" \
+  --collection ABCD1234
+```
+
+The `--env` option records the expanded key in Claude Code's private user
+configuration at `~/.claude.json`; protect that file and never commit the key.
+As with Codex, you may omit the `--library` pair for key-based personal-library
+discovery, or use `group:<group-id>` with a key for a private group.
+
+For a credential-free public group and collection, omit `--env`:
+
+```bash
+claude mcp add \
+  --transport stdio \
+  --scope user \
+  zotero-public \
+  -- node /absolute/path/to/zotero-mcp/dist/cli.js \
+  --library "group:<group-id>" \
+  --collection ABCD1234
+```
+
+Run `claude mcp list` or `claude mcp get zotero` from the shell, or `/mcp`
+inside Claude Code, to verify the connection. See the official
+[Claude Code MCP documentation](https://code.claude.com/docs/en/mcp) for scope
+and server-management details.
+
+Other MCP clients can use the same `node` command, absolute entry-point path,
+arguments, and environment in their local stdio-server configuration format.
 
 ## Privacy and security
 
@@ -339,7 +366,7 @@ full-text API response before refreshing the fixture.
 ## Acknowledgement
 
 This project was inspired by
-[`yilewang/llm-for-zotero`](https://github.com/yilewang/llm-for-zotero).
+[`yilewang/llm-for-zotero`](https://github.com/yilewang/llm-for-zotero). `llm-for-zotero` uses LLMs in Zotero. `zotero-mcp` uses Zotero in LLMs.
 
 ## License
 
