@@ -276,35 +276,21 @@ publishing is automated.
 
 ### Public test fixture
 
-The live suite is designed for a public, closed-membership Zotero group named
-`zotero-mcp-e2e`. Anyone must be able to read its library, while only
-administrators may edit the library and files. It must contain one uniquely
-titled and tagged bibliographic item with exactly one stored PDF child. The
-copyright-free PDF must contain distinctive markers and enough indexed text to
-exercise chunking.
+The live suite reads the public
+[`Systems and Computational Neuroscience 2021`](https://www.zotero.org/groups/4445743/systems_and_computational_neuroscience_2021)
+group (`4445743`) without credentials. It pins one uniquely searchable journal
+article and its sole stored PDF attachment so the test remains deterministic.
 
 [`test/e2e/public-library-fixture.json`](test/e2e/public-library-fixture.json)
-is the fixture contract. It records the expected item title, item type, tag,
-attachment filename, search marker, first-chunk marker, and continuation
-marker. Until the external group is provisioned and verified, its `groupId`
-remains `null`, which makes the live runner stop with provisioning instructions
-instead of contacting an arbitrary library.
+is the committed contract. It records the expected parent and attachment keys,
+metadata filters, stored-attachment details, a PDF-only search query, and text
+fragments in the first two 256-character chunks. The fixture and test contain
+no API key or private-library data, and the test makes no Zotero write requests.
 
-Upload
-[`test/e2e/zotero-mcp-public-e2e-fixture.pdf`](test/e2e/zotero-mcp-public-e2e-fixture.pdf)
-as the report item's sole stored child. Its adjacent `.txt` source is original
-project text. The PDF's extracted opening, search, and continuation markers
-begin at character offsets 0, 26, and 440, respectively, and its extracted text
-is longer than the two 256-character chunks exercised by the test.
-
-Tests discover Zotero-assigned parent and attachment keys at runtime instead of
-treating those keys as stable. The fixture and test contain no API key or
-private-library data, and the test makes no Zotero write requests.
-
-Because this is an external-service test, a failure can indicate a Zotero
-outage, indexing delay, rate limit, or accidental fixture change as well as a
-package regression. Confirm the group's public item, child, and full-text API
-responses when maintaining the fixture.
+The group is not controlled by this project. A failure can indicate a Zotero
+outage, indexing delay, rate limit, or external-library change as well as a
+package regression. Confirm the pinned public item, child, searches, and
+full-text API response before refreshing the fixture.
 
 ## Acknowledgement
 

@@ -134,10 +134,16 @@ function loadFixture() {
   const item = rawFixture.item;
   const itemIsRecord = validateExactKeys(
     item,
-    ["title", "itemType", "tag"],
+    ["key", "title", "itemType", "tag"],
     "item",
     problems,
   );
+  const itemKey = itemIsRecord
+    ? readRequiredString(item.key, "item.key", problems, {
+        minimumLength: 8,
+        maximumLength: 8,
+      })
+    : undefined;
   const title = itemIsRecord
     ? readRequiredString(item.title, "item.title", problems, {
         maximumLength: 512,
@@ -158,39 +164,60 @@ function loadFixture() {
       "item.itemType must be a Zotero item type such as journalArticle",
     );
   }
+  if (itemKey !== undefined && !/^[A-Z0-9]{8}$/.test(itemKey)) {
+    problems.push("item.key must be an eight-character Zotero item key");
+  }
 
   const attachment = rawFixture.attachment;
   const attachmentIsRecord = validateExactKeys(
     attachment,
-    ["filename", "searchMarker", "firstChunkMarker", "continuationMarker"],
+    [
+      "key",
+      "filename",
+      "linkMode",
+      "fulltextSearchQuery",
+      "firstChunkText",
+      "continuationText",
+    ],
     "attachment",
     problems,
   );
+  const attachmentKey = attachmentIsRecord
+    ? readRequiredString(attachment.key, "attachment.key", problems, {
+        minimumLength: 8,
+        maximumLength: 8,
+      })
+    : undefined;
   const filename = attachmentIsRecord
     ? readRequiredString(attachment.filename, "attachment.filename", problems, {
         maximumLength: 255,
       })
     : undefined;
-  const searchMarker = attachmentIsRecord
+  const linkMode = attachmentIsRecord
+    ? readRequiredString(attachment.linkMode, "attachment.linkMode", problems, {
+        maximumLength: 64,
+      })
+    : undefined;
+  const fulltextSearchQuery = attachmentIsRecord
     ? readRequiredString(
-        attachment.searchMarker,
-        "attachment.searchMarker",
+        attachment.fulltextSearchQuery,
+        "attachment.fulltextSearchQuery",
         problems,
         { minimumLength: 16, maximumLength: 128 },
       )
     : undefined;
-  const firstChunkMarker = attachmentIsRecord
+  const firstChunkText = attachmentIsRecord
     ? readRequiredString(
-        attachment.firstChunkMarker,
-        "attachment.firstChunkMarker",
+        attachment.firstChunkText,
+        "attachment.firstChunkText",
         problems,
         { minimumLength: 16, maximumLength: 128 },
       )
     : undefined;
-  const continuationMarker = attachmentIsRecord
+  const continuationText = attachmentIsRecord
     ? readRequiredString(
-        attachment.continuationMarker,
-        "attachment.continuationMarker",
+        attachment.continuationText,
+        "attachment.continuationText",
         problems,
         { minimumLength: 16, maximumLength: 128 },
       )
@@ -199,23 +226,16 @@ function loadFixture() {
   if (filename !== undefined && !filename.toLowerCase().endsWith(".pdf")) {
     problems.push("attachment.filename must end in .pdf");
   }
-
-  const markers = [searchMarker, firstChunkMarker, continuationMarker].filter(
-    (value) => value !== undefined,
-  );
-  if (new Set(markers).size !== markers.length) {
-    problems.push("the three attachment markers must be distinct");
+  if (attachmentKey !== undefined && !/^[A-Z0-9]{8}$/.test(attachmentKey)) {
+    problems.push("attachment.key must be an eight-character Zotero item key");
   }
-  for (const marker of markers) {
-    if (
-      title?.includes(marker) === true ||
-      tag?.includes(marker) === true ||
-      filename?.includes(marker) === true
-    ) {
-      problems.push(
-        `attachment marker ${inspect(marker)} must occur only in the PDF text, not fixture metadata`,
-      );
-    }
+  if (linkMode !== undefined && !/^imported_(?:file|url)$/.test(linkMode)) {
+    problems.push(
+      "attachment.linkMode must identify a stored Zotero attachment",
+    );
+  }
+  if (itemKey !== undefined && itemKey === attachmentKey) {
+    problems.push("item.key and attachment.key must be different");
   }
 
   if (problems.length > 0) {
@@ -224,12 +244,14 @@ function loadFixture() {
 
   return {
     groupId,
-    item: { title, itemType, tag },
+    item: { key: itemKey, title, itemType, tag },
     attachment: {
+      key: attachmentKey,
       filename,
-      searchMarker,
-      firstChunkMarker,
-      continuationMarker,
+      linkMode,
+      fulltextSearchQuery,
+      firstChunkText,
+      continuationText,
     },
   };
 }
@@ -237,9 +259,9 @@ function loadFixture() {
 function throwFixtureError(problems) {
   throw new FixtureConfigurationError(
     [
-      "The public Zotero E2E fixture has not been provisioned completely.",
-      `Fill the missing or invalid fields in ${fixturePath} after creating the project-controlled public group and uploading the committed test PDF, then commit the values together.`,
-      `Place searchMarker and firstChunkMarker within extracted characters 0-${String(FULLTEXT_CHUNK_SIZE - 1)}, and continuationMarker within characters ${String(FULLTEXT_CHUNK_SIZE)}-${String(FULLTEXT_CHUNK_SIZE * 2 - 1)}.`,
+      "The committed public Zotero E2E fixture is invalid.",
+      `Update ${fixturePath} only after verifying the pinned public group, item, attachment, searches, and extracted text against the Zotero API.`,
+      `Place firstChunkText within extracted characters 0-${String(FULLTEXT_CHUNK_SIZE - 1)}, and continuationText within characters ${String(FULLTEXT_CHUNK_SIZE)}-${String(FULLTEXT_CHUNK_SIZE * 2 - 1)}.`,
       "Invalid or missing fields:",
       ...problems.map((problem) => `- ${problem}`),
     ].join("\n"),
@@ -463,6 +485,7 @@ async function verifyFixtureTools(client, fixture) {
   );
   const exactMatches = metadataItems.filter(
     (item) =>
+      item.key === fixture.item.key &&
       item.title === fixture.item.title &&
       item.item_type === fixture.item.itemType &&
       Array.isArray(item.tags) &&
@@ -474,13 +497,13 @@ async function verifyFixtureTools(client, fixture) {
   );
   const parentKey = requireString(exactMatches[0].key, "fixture item key");
   invariant(
-    /^[A-Z0-9]{8}$/.test(parentKey),
-    `Fixture item returned invalid Zotero key ${inspect(parentKey)}.`,
+    parentKey === fixture.item.key,
+    `Expected fixture item ${fixture.item.key}, received ${inspect(parentKey)}.`,
   );
 
   const fulltextSearch = structuredToolOutput(
     await callTool(client, "zotero_search_items", {
-      query: fixture.attachment.searchMarker,
+      query: fixture.attachment.fulltextSearchQuery,
       search_mode: "everything",
       limit: 10,
     }),
@@ -497,7 +520,7 @@ async function verifyFixtureTools(client, fixture) {
       fulltextItems.length === 1 &&
       fulltextItems[0].key === parentKey &&
       fulltextItems[0].title === fixture.item.title,
-    `Expected the PDF-only marker search to return only the fixture parent item; received ${inspect(fulltextSearch)}.`,
+    `Expected the PDF-only full-text search to return only the fixture parent item; received ${inspect(fulltextSearch)}.`,
   );
 
   const parentOutput = structuredToolOutput(
@@ -529,13 +552,18 @@ async function verifyFixtureTools(client, fixture) {
   );
   const attachment = children[0];
   invariant(
-    attachment.item_type === "attachment" &&
+    attachment.key === fixture.attachment.key &&
+      attachment.item_type === "attachment" &&
       attachment.content_type === "application/pdf" &&
       attachment.filename === fixture.attachment.filename &&
       attachment.parent_item === parentKey,
     `Fixture child is not the expected PDF attachment: ${inspect(attachment)}.`,
   );
   const attachmentKey = requireString(attachment.key, "attachment key");
+  invariant(
+    attachmentKey === fixture.attachment.key,
+    `Expected fixture attachment ${fixture.attachment.key}, received ${inspect(attachmentKey)}.`,
+  );
 
   const attachmentOutput = structuredToolOutput(
     await callTool(client, "zotero_get_item", { item_key: attachmentKey }),
@@ -555,7 +583,7 @@ async function verifyFixtureTools(client, fixture) {
       attachmentData.parentItem === parentKey &&
       attachmentData.filename === fixture.attachment.filename &&
       attachmentData.contentType === "application/pdf" &&
-      attachmentData.linkMode === "imported_file",
+      attachmentData.linkMode === fixture.attachment.linkMode,
     `Fixture PDF must be a stored child attachment: ${inspect(attachmentData)}.`,
   );
 
@@ -563,16 +591,12 @@ async function verifyFixtureTools(client, fixture) {
     parentData,
     attachmentData,
   ]).toLowerCase();
-  for (const marker of [
-    fixture.attachment.searchMarker,
-    fixture.attachment.firstChunkMarker,
-    fixture.attachment.continuationMarker,
-  ]) {
-    invariant(
-      !metadataText.includes(marker.toLowerCase()),
-      `Attachment marker ${inspect(marker)} appears in Zotero item metadata instead of only in the PDF text.`,
-    );
-  }
+  invariant(
+    !metadataText.includes(
+      fixture.attachment.fulltextSearchQuery.toLowerCase(),
+    ),
+    `Full-text search query ${inspect(fixture.attachment.fulltextSearchQuery)} appears in Zotero item metadata instead of only in the PDF text.`,
+  );
 
   const firstFulltext = structuredToolOutput(
     await callTool(client, "zotero_get_fulltext", {
@@ -592,9 +616,8 @@ async function verifyFixtureTools(client, fixture) {
     "Parent full-text lookup resolved an unexpected attachment.",
   );
   invariant(
-    firstText.includes(fixture.attachment.searchMarker) &&
-      firstText.includes(fixture.attachment.firstChunkMarker),
-    "The first full-text chunk did not contain both configured opening markers.",
+    firstText.includes(fixture.attachment.firstChunkText),
+    "The first full-text chunk did not contain the configured opening text.",
   );
   invariant(
     firstFulltext.offset === 0 &&
@@ -633,8 +656,8 @@ async function verifyFixtureTools(client, fixture) {
     "The full-text continuation did not retain its offset and attachment.",
   );
   invariant(
-    continuedText.includes(fixture.attachment.continuationMarker),
-    "The followed next_offset chunk did not contain continuationMarker.",
+    continuedText.includes(fixture.attachment.continuationText),
+    "The followed next_offset chunk did not contain continuationText.",
   );
   validateIndexingMetadata(continuedFulltext, "continued full-text response");
 
@@ -660,10 +683,9 @@ async function verifyFixtureTools(client, fixture) {
     "Direct attachment-key full-text access returned another item.",
   );
   invariant(
-    directText.includes(fixture.attachment.searchMarker) &&
-      directText.includes(fixture.attachment.firstChunkMarker) &&
-      directText.includes(fixture.attachment.continuationMarker),
-    "Direct attachment-key access did not return all configured PDF markers.",
+    directText.includes(fixture.attachment.firstChunkText) &&
+      directText.includes(fixture.attachment.continuationText),
+    "Direct attachment-key access did not return both configured PDF text fragments.",
   );
   validateIndexingMetadata(directFulltext, "direct full-text response");
 

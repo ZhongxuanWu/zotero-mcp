@@ -1,14 +1,17 @@
 {
-  "groupId": null,
+  "groupId": 4445743,
   "item": {
-    "title": "Zotero MCP Public E2E Fixture 2026-08",
-    "itemType": "report",
-    "tag": "zotero-mcp-public-e2e"
+    "key": "HWTX2PGZ",
+    "title": "Computational Investigation of Contributions from Different Subtypes of Interneurons in Prefrontal Cortex for Information Maintenance",
+    "itemType": "journalArticle",
+    "tag": "/unread"
   },
   "attachment": {
-    "filename": "zotero-mcp-public-e2e-fixture.pdf",
-    "searchMarker": "ZOTEROMCPE2ESEARCH7F3A9C",
-    "firstChunkMarker": "ZOTEROMCPE2EOPENING4D8B2E",
-    "continuationMarker": "ZOTEROMCPE2ECONTINUATION9C1F6A"
+    "key": "BB5MMRAX",
+    "filename": "Zhang 等。 - 2020 - Computational Investigation of Contributions from .pdf",
+    "linkMode": "imported_url",
+    "fulltextSearchQuery": "Single neuron was simulated using the aEIF model",
+    "firstChunkText": "OPEN Computational Investigation",
+    "continuationText": "specific division of labor is still under investigation"
   }
 }
