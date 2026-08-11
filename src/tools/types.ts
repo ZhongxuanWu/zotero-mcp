@@ -1,6 +1,7 @@
 import type {
   ZoteroFulltext,
   ZoteroItem,
+  ZoteroCollectionPage,
   ZoteroPage,
   ZoteroPageOptions,
   ZoteroSearchItemsOptions,
@@ -8,6 +9,7 @@ import type {
 
 /** The subset of the Zotero Web API client used by the MCP tools. */
 export interface ZoteroToolClient {
+  listCollections(options?: ZoteroPageOptions): Promise<ZoteroCollectionPage>;
   searchItems(
     options?: ZoteroSearchItemsOptions,
   ): Promise<ZoteroPage<ZoteroItem>>;

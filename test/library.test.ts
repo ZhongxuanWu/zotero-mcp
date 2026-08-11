@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { libraryApiPath, parseLibrarySelector } from "../src/zotero/library.js";
+import {
+  libraryApiPath,
+  parseLibrarySelector,
+  requireCollectionKey,
+} from "../src/zotero/library.js";
 
 describe("Zotero library selectors", () => {
   it.each([
@@ -35,6 +39,21 @@ describe("Zotero library selectors", () => {
   });
 });
 
+describe("Zotero collection keys", () => {
+  it("normalizes a valid collection key", () => {
+    expect(requireCollectionKey(" abcd1234 ")).toBe("ABCD1234");
+  });
+
+  it.each(["", "SHORT", "TOO-LONG1", "ABC_1234"])(
+    "rejects malformed collection key %j",
+    (key) => {
+      expect(() => requireCollectionKey(key)).toThrow(
+        /8-character Zotero collection key/,
+      );
+    },
+  );
+});
+
 describe("CLI library validation", () => {
   function runCli(args: readonly string[]) {
     const environment = { ...process.env };
@@ -61,14 +80,39 @@ describe("CLI library validation", () => {
     );
   });
 
+  it("accepts collection focus in either option order", () => {
+    for (const args of [
+      ["--library", "group:123", "--collection", "abcd1234"],
+      ["--collection", "ABCD1234", "--library", "group:123"],
+    ]) {
+      const result = runCli(args);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+    }
+  });
+
+  it("does not treat collection focus as authentication", () => {
+    const result = runCli(["--collection", "ABCD1234"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "ZOTERO_API_KEY is required when --library is omitted",
+    );
+  });
+
   it.each([
     [["--library"], /requires a value/],
     [["--library", "--help"], /requires a value/],
     [["--library", "team:123"], /Invalid Zotero library selector/],
     [["--library", "group:0"], /Invalid Zotero library selector/],
+    [["--collection"], /requires a value/],
+    [["--collection", "bad"], /Invalid Zotero collection key/],
     [["unexpected", "--version"], /Unknown argument/],
     [
       ["--library", "group:123", "--library", "user:456"],
+      /only be provided once/,
+    ],
+    [
+      ["--collection", "ABCD1234", "--collection", "EFGH5678"],
       /only be provided once/,
     ],
   ] as const)("reports invalid arguments with exit code 2", (args, message) => {

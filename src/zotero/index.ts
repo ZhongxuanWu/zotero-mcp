@@ -3,11 +3,16 @@ export { ZoteroApiError } from "./errors.js";
 export {
   libraryApiPath,
   parseLibrarySelector,
+  requireCollectionKey,
   requireLibraryLocator,
 } from "./library.js";
 export type { ZoteroApiErrorCode, ZoteroApiErrorOptions } from "./errors.js";
 export type {
   LibraryLocator,
+  ZoteroCollection,
+  ZoteroCollectionData,
+  ZoteroCollectionEntry,
+  ZoteroCollectionPage,
   ZoteroClientOptions,
   ZoteroCreator,
   ZoteroFulltext,

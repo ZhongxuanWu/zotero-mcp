@@ -13,7 +13,7 @@ export function createZoteroMcpServer(
     { name: SERVER_NAME, version },
     {
       instructions:
-        "These read-only tools access the configured synchronized Zotero library. Start with zotero_search_items, inspect a result with zotero_get_item, then use zotero_get_fulltext for Zotero-indexed PDF text. If a parent has multiple PDFs, choose a returned attachment_key. Follow next_start and next_offset to retrieve additional chunks; do not assume truncated results are complete.",
+        "These read-only tools access the configured synchronized Zotero library and honor any configured collection scope. Use zotero_list_collections to discover collection keys. Start item discovery with zotero_search_items, inspect a result with zotero_get_item, then use zotero_get_fulltext for Zotero-indexed PDF text. If a parent has multiple PDFs, choose a returned attachment_key. Follow next_start and next_offset to retrieve additional chunks; do not assume truncated results are complete.",
     },
   );
   registerZoteroTools(server, client);

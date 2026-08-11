@@ -18,12 +18,21 @@ Codex or another MCP client  <-- local stdio -->  zotero-mcp
 
 ## Supported tools
 
+### `zotero_list_collections`
+
+List and paginate the configured library's collection hierarchy in
+deterministic depth-first order. Results include stable collection keys, names,
+full paths, parent keys, depths, and Zotero-reported item and subcollection
+counts. When collection focus is configured, only that collection tree is
+listed.
+
 ### `zotero_search_items`
 
-Search and paginate top-level items in the configured Zotero library. Inputs
-include text, `metadata` or `everything` search mode, item type, tag, page size,
-and offset. Results contain compact item metadata and pagination information.
-This uses Zotero API search, not semantic or vector search.
+Search and paginate top-level items in the configured Zotero library or focused
+collection tree. Inputs include text, `metadata` or `everything` search mode,
+item type, tag, page size, and offset. Results contain compact item metadata and
+pagination information. This uses Zotero API search, not semantic or vector
+search.
 
 ### `zotero_get_item`
 
@@ -39,7 +48,7 @@ and chunk size. If a parent has exactly one PDF, it is selected automatically;
 if it has several, the tool returns candidates. Results include truncation,
 `next_offset`, and Zotero indexing coverage when available.
 
-All three tools are read-only.
+All four tools are read-only.
 
 ## Configuration
 
@@ -94,6 +103,27 @@ it does not make a private library public. See Zotero's documentation for
 [Web API access](https://www.zotero.org/support/dev/web_api/v3/basics) and
 [group library settings](https://www.zotero.org/support/groups).
 
+### Focus on a collection
+
+Use `zotero_list_collections` without collection focus to discover stable
+collection keys. Then add `--collection <key>` and restart the MCP server:
+
+```bash
+zotero-mcp --collection ABCD1234
+zotero-mcp --library group:<group-id> --collection ABCD1234
+```
+
+The first form uses the personal library discovered from `ZOTERO_API_KEY`; the
+second selects a group library. Collection keys are eight alphanumeric
+characters and are normalized to uppercase.
+
+Focus includes the selected collection and every nested subcollection. Search
+results are merged and deduplicated when an item belongs to multiple included
+collections. `zotero_get_item` and `zotero_get_fulltext` reject keys outside the
+focused tree; child notes and attachments remain accessible when their parent
+item is in scope. `zotero_list_collections` lists only the focused tree after
+the option is configured.
+
 ## Run from source (available now)
 
 Node.js 20 or newer is required.
@@ -113,6 +143,16 @@ forward the key. A Codex configuration in `~/.codex/config.toml` looks like:
 command = "node"
 args = ["/absolute/path/to/zotero-mcp/dist/cli.js"]
 env_vars = ["ZOTERO_API_KEY"]
+```
+
+To focus that private library on one collection, append the collection option:
+
+```toml
+args = [
+  "/absolute/path/to/zotero-mcp/dist/cli.js",
+  "--collection",
+  "ABCD1234",
+]
 ```
 
 For a public group, use the selector instead and omit secret forwarding:
@@ -234,8 +274,8 @@ Use `command = "zotero-mcp"` in place of `npx` when globally installed.
 - Read-only: there are no create, update, delete, upload, or annotation-writing
   tools.
 - No OAuth flow. Restricted libraries require `ZOTERO_API_KEY`.
-- No collection-browsing tool, semantic search, local database integration, or
-  local content cache.
+- No semantic search, local database integration, or persistent local content
+  cache.
 - For authenticated libraries, note bodies require the API key's separate
   note-read permission.
 - Full text is limited to content already indexed and synced by Zotero. The
@@ -267,8 +307,9 @@ npm run test:e2e:public
 It packs the project into an operating-system temporary directory, installs the
 tarball in a clean consumer project, removes `ZOTERO_API_KEY` from the child
 environment, and connects to the installed `zotero-mcp` executable. The test
-performs the MCP handshake and verifies search, item retrieval, attachment
-discovery, indexed-PDF search, chunked full text, and direct attachment access.
+performs the MCP handshake and verifies collection listing and isolation,
+search, item retrieval, attachment discovery, indexed-PDF search, chunked full
+text, and direct attachment access.
 It requires outbound HTTPS access and a responsive Zotero API, so it runs only
 on a weekly schedule or by manual workflow dispatch. It is intentionally not a
 required pull-request check; run it manually as a release prerequisite until
@@ -279,13 +320,16 @@ publishing is automated.
 The live suite reads the public
 [`Systems and Computational Neuroscience 2021`](https://www.zotero.org/groups/4445743/systems_and_computational_neuroscience_2021)
 group (`4445743`) without credentials. It pins one uniquely searchable journal
-article and its sole stored PDF attachment so the test remains deterministic.
+article in the `Systems Neuroscience` collection, its sole stored PDF
+attachment, and one item outside that collection so the test remains
+deterministic.
 
 [`test/e2e/public-library-fixture.json`](test/e2e/public-library-fixture.json)
-is the committed contract. It records the expected parent and attachment keys,
-metadata filters, stored-attachment details, a PDF-only search query, and text
-fragments in the first two 256-character chunks. The fixture and test contain
-no API key or private-library data, and the test makes no Zotero write requests.
+is the committed contract. It records the collection scope, an outside item,
+the expected parent and attachment keys, metadata filters, stored-attachment
+details, a PDF-only search query, and text fragments in the first two
+256-character chunks. The fixture and test contain no API key or private-library
+data, and the test makes no Zotero write requests.
 
 The group is not controlled by this project. A failure can indicate a Zotero
 outage, indexing delay, rate limit, or external-library change as well as a

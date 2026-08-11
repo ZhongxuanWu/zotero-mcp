@@ -5,8 +5,10 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createZoteroMcpServer, SERVER_VERSION } from "./server.js";
 import { ZoteroClient } from "./zotero/client.js";
 import {
+  COLLECTION_KEY_HELP,
   LIBRARY_SELECTOR_HELP,
   parseLibrarySelector,
+  requireCollectionKey,
 } from "./zotero/library.js";
 import type { LibraryLocator } from "./zotero/types.js";
 
@@ -15,12 +17,13 @@ const HELP = `zotero-mcp ${SERVER_VERSION}
 A local, read-only MCP server for the Zotero Web API.
 
 Usage:
-  zotero-mcp [--library <type:id>]
+  zotero-mcp [--library <type:id>] [--collection <key>]
   zotero-mcp --help
   zotero-mcp --version
 
 Options:
   --library <type:id>  Target user:<positive-id> or group:<positive-id>
+  --collection <key>   Focus on a collection and all of its subcollections
 
 Environment:
   ZOTERO_API_KEY  Required without --library; optional for public libraries
@@ -48,16 +51,17 @@ export function main(
   }
 
   let library: LibraryLocator | undefined;
+  let collectionKey: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument !== "--library") {
+    if (argument !== "--library" && argument !== "--collection") {
       writeStderr(
         `Unknown argument: ${argument ?? ""}\nRun zotero-mcp --help for usage.\n`,
       );
       process.exitCode = 2;
       return;
     }
-    if (library !== undefined) {
+    if (argument === "--library" && library !== undefined) {
       writeStderr(
         "--library may only be provided once.\nRun zotero-mcp --help for usage.\n",
       );
@@ -65,17 +69,29 @@ export function main(
       return;
     }
 
-    const selector = args[index + 1];
-    if (selector === undefined || selector.startsWith("-")) {
+    if (argument === "--collection" && collectionKey !== undefined) {
       writeStderr(
-        `--library requires a value. ${LIBRARY_SELECTOR_HELP}\nRun zotero-mcp --help for usage.\n`,
+        "--collection may only be provided once.\nRun zotero-mcp --help for usage.\n",
+      );
+      process.exitCode = 2;
+      return;
+    }
+
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("-")) {
+      writeStderr(
+        `${argument} requires a value. ${argument === "--library" ? LIBRARY_SELECTOR_HELP : COLLECTION_KEY_HELP}\nRun zotero-mcp --help for usage.\n`,
       );
       process.exitCode = 2;
       return;
     }
 
     try {
-      library = parseLibrarySelector(selector);
+      if (argument === "--library") {
+        library = parseLibrarySelector(value);
+      } else {
+        collectionKey = requireCollectionKey(value);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid value.";
       writeStderr(`${message}\nRun zotero-mcp --help for usage.\n`);
@@ -97,6 +113,7 @@ export function main(
   const client = new ZoteroClient({
     ...(apiKey === undefined ? {} : { apiKey }),
     ...(library === undefined ? {} : { library }),
+    ...(collectionKey === undefined ? {} : { collectionKey }),
   });
   serveStdio(() => createZoteroMcpServer(client), {
     onerror: () => {

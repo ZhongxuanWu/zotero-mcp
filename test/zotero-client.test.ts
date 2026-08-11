@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ZoteroClient } from "../src/zotero/client.js";
 import { ZoteroApiError } from "../src/zotero/errors.js";
-import type { ZoteroItem } from "../src/zotero/types.js";
+import type { ZoteroCollection, ZoteroItem } from "../src/zotero/types.js";
 
 const API_KEY = "super-secret-zotero-key";
 const USER_ID = 12345;
@@ -43,6 +43,41 @@ function item(
       ...fields,
     },
   };
+}
+
+function collection(
+  key: string,
+  name: string,
+  parentCollection: string | false = false,
+): ZoteroCollection {
+  return {
+    key,
+    version: 3,
+    meta: { numItems: 2, numCollections: 1 },
+    data: { key, version: 3, name, parentCollection, relations: {} },
+  };
+}
+
+function collectionResponse(
+  collections: ZoteroCollection[],
+  version = 10,
+): Response {
+  return jsonResponse(collections, {
+    headers: {
+      "Total-Results": String(collections.length),
+      "Last-Modified-Version": String(version),
+    },
+  });
+}
+
+function keysResponse(keys: readonly string[], version = 10): Response {
+  return new Response(keys.length === 0 ? "" : `${keys.join("\n")}\n`, {
+    headers: {
+      "Content-Type": "text/plain",
+      "Total-Results": String(keys.length),
+      "Last-Modified-Version": String(version),
+    },
+  });
 }
 
 function mockFetch(...responses: Response[]): typeof fetch {
@@ -212,6 +247,231 @@ describe("ZoteroClient authentication and requests", () => {
 });
 
 describe("ZoteroClient resource reads", () => {
+  it("lists a focused collection tree and recursively paginates deduplicated search results", async () => {
+    const root = collection("ROOT0001", "Research");
+    const child = collection("CHILD001", "Methods", root.key);
+    const grandchild = collection("GRAND001", "Models", child.key);
+    const unrelated = collection("OTHER001", "Unrelated");
+    const first = item("ITEM0001", "journalArticle", {
+      collections: [root.key],
+    });
+    const duplicate = item("DUPL0001", "journalArticle", {
+      collections: [root.key, child.key],
+    });
+    const second = item("ITEM0002", "journalArticle", {
+      collections: [child.key],
+    });
+    const fetchMock = mockFetch(
+      collectionResponse([unrelated, grandchild, child, root]),
+      keysResponse([first.key, duplicate.key]),
+      keysResponse([duplicate.key, second.key]),
+      keysResponse([]),
+      jsonResponse([second, duplicate], {
+        headers: {
+          "Total-Results": "2",
+          "Last-Modified-Version": "10",
+        },
+      }),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: "root0001",
+      fetch: fetchMock,
+    });
+
+    await expect(client.listCollections({ limit: 2 })).resolves.toMatchObject({
+      items: [
+        { collection: { key: root.key }, path: ["Research"], depth: 0 },
+        {
+          collection: { key: child.key },
+          path: ["Research", "Methods"],
+          depth: 1,
+        },
+      ],
+      totalResults: 3,
+      nextStart: 2,
+      focusedCollectionKey: root.key,
+    });
+    const result = await client.searchItems({
+      q: "cortical model",
+      qmode: "everything",
+      itemType: "journalArticle",
+      tag: "methods",
+      limit: 2,
+      start: 1,
+    });
+
+    expect(result).toMatchObject({
+      items: [{ key: duplicate.key }, { key: second.key }],
+      totalResults: 3,
+      start: 1,
+      limit: 2,
+      nextStart: null,
+    });
+    const urls = vi
+      .mocked(fetchMock)
+      .mock.calls.map(([input]) => new URL(String(input)));
+    expect(urls[0]?.pathname).toBe("/groups/98765/collections");
+    expect(urls.slice(1, 4).map(({ pathname }) => pathname)).toEqual([
+      "/groups/98765/collections/ROOT0001/items/top",
+      "/groups/98765/collections/CHILD001/items/top",
+      "/groups/98765/collections/GRAND001/items/top",
+    ]);
+    for (const url of urls.slice(1, 4)) {
+      expect(url?.searchParams.get("format")).toBe("keys");
+      expect(url?.searchParams.get("q")).toBe("cortical model");
+      expect(url?.searchParams.get("qmode")).toBe("everything");
+      expect(url?.searchParams.get("itemType")).toBe("journalArticle");
+      expect(url?.searchParams.get("tag")).toBe("methods");
+    }
+    expect(urls[4]?.pathname).toBe("/groups/98765/items/top");
+    expect(urls[4]?.searchParams.get("itemKey")).toBe("DUPL0001,ITEM0002");
+  });
+
+  it("enforces collection scope while allowing children of in-scope parents", async () => {
+    const root = collection("ROOT0001", "Research");
+    const parent = item("PARENT01", "journalArticle", {
+      collections: [root.key],
+    });
+    const attachment = item("ATTACH01", "attachment", {
+      parentItem: parent.key,
+      contentType: "application/pdf",
+      filename: "paper.pdf",
+    });
+    const fetchMock = mockFetch(
+      jsonResponse(parent, { headers: { "Last-Modified-Version": "10" } }),
+      collectionResponse([root]),
+      jsonResponse(attachment, {
+        headers: { "Last-Modified-Version": "10" },
+      }),
+      jsonResponse(parent, { headers: { "Last-Modified-Version": "10" } }),
+      jsonResponse(
+        { content: "Scoped text" },
+        {
+          headers: { "Last-Modified-Version": "10" },
+        },
+      ),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: root.key,
+      fetch: fetchMock,
+    });
+
+    await expect(client.getItem(parent.key)).resolves.toEqual(parent);
+    await expect(client.getFulltext(attachment.key)).resolves.toEqual({
+      content: "Scoped text",
+    });
+  });
+
+  it("rejects top-level items outside the configured collection tree", async () => {
+    const root = collection("ROOT0001", "Research");
+    const unrelated = collection("OTHER001", "Unrelated");
+    const outside = item("OUTSIDE1", "journalArticle", {
+      collections: [unrelated.key],
+    });
+    const fetchMock = mockFetch(
+      jsonResponse(outside, { headers: { "Last-Modified-Version": "10" } }),
+      collectionResponse([root, unrelated]),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: root.key,
+      fetch: fetchMock,
+    });
+
+    await expect(client.getItem(outside.key)).rejects.toMatchObject({
+      code: "outside_collection_scope",
+    });
+  });
+
+  it("fetches scoped result bodies in Zotero's 50-key batches", async () => {
+    const root = collection("ROOT0001", "Research");
+    const keys = Array.from(
+      { length: 51 },
+      (_, index) => `I${String(index).padStart(7, "0")}`,
+    );
+    const items = keys.map((key) =>
+      item(key, "journalArticle", { collections: [root.key] }),
+    );
+    const fetchMock = mockFetch(
+      collectionResponse([root]),
+      keysResponse(keys),
+      jsonResponse(items.slice(0, 50), {
+        headers: {
+          "Total-Results": "50",
+          "Last-Modified-Version": "10",
+        },
+      }),
+      jsonResponse(items.slice(50), {
+        headers: {
+          "Total-Results": "1",
+          "Last-Modified-Version": "10",
+        },
+      }),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: root.key,
+      fetch: fetchMock,
+    });
+
+    const result = await client.searchItems({ limit: 100 });
+    expect(result.items).toHaveLength(51);
+    const urls = vi
+      .mocked(fetchMock)
+      .mock.calls.map(([input]) => new URL(String(input)));
+    expect(urls[2]?.searchParams.get("itemKey")?.split(",")).toHaveLength(50);
+    expect(urls[3]?.searchParams.get("itemKey")?.split(",")).toHaveLength(1);
+  });
+
+  it("invalidates the collection tree when Zotero's library version changes", async () => {
+    const root = collection("ROOT0001", "Research");
+    const child = collection("CHILD001", "New child", root.key);
+    const movedItem = item("MOVED001", "journalArticle", {
+      collections: [child.key],
+    });
+    const fetchMock = mockFetch(
+      collectionResponse([root], 10),
+      jsonResponse(movedItem, {
+        headers: { "Last-Modified-Version": "11" },
+      }),
+      collectionResponse([root, child], 11),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: root.key,
+      fetch: fetchMock,
+    });
+
+    await client.listCollections();
+    await expect(client.getItem(movedItem.key)).resolves.toEqual(movedItem);
+    expect(
+      vi
+        .mocked(fetchMock)
+        .mock.calls.map(([input]) => new URL(String(input)).pathname),
+    ).toEqual([
+      "/groups/98765/collections",
+      "/groups/98765/items/MOVED001",
+      "/groups/98765/collections",
+    ]);
+  });
+
+  it("reports a missing configured collection", async () => {
+    const fetchMock = mockFetch(
+      collectionResponse([collection("ROOT0001", "Research")]),
+    );
+    const client = new ZoteroClient({
+      library: { type: "group", id: 98765 },
+      collectionKey: "MISSING1",
+      fetch: fetchMock,
+    });
+
+    await expect(client.listCollections()).rejects.toMatchObject({
+      code: "not_found",
+    });
+  });
+
   it("encodes all top-item search parameters and returns Total-Results pagination", async () => {
     const fetchMock = mockFetch(
       keyResponse(),

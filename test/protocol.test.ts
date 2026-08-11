@@ -20,6 +20,14 @@ function item(key: string): ZoteroItem {
 
 function mockClient(): ZoteroToolClient {
   return {
+    listCollections: vi.fn(async () => ({
+      items: [],
+      totalResults: 0,
+      start: 0,
+      limit: 50,
+      nextStart: null,
+      focusedCollectionKey: null,
+    })),
     searchItems: vi.fn(async () => ({
       items: [item("ABCD1234")],
       totalResults: 1,
@@ -60,7 +68,7 @@ describe("MCP protocol", () => {
     return client;
   }
 
-  it("initializes and advertises exactly three read-only open-world tools", async () => {
+  it("initializes and advertises exactly four read-only open-world tools", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
 
@@ -70,6 +78,7 @@ describe("MCP protocol", () => {
     });
     expect(client.getInstructions()).toContain("zotero_search_items");
     expect(tools.map((tool) => tool.name)).toEqual([
+      "zotero_list_collections",
       "zotero_search_items",
       "zotero_get_item",
       "zotero_get_fulltext",

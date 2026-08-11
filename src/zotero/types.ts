@@ -8,6 +8,7 @@ export interface LibraryLocator {
 export interface ZoteroClientOptions {
   apiKey?: string;
   library?: LibraryLocator;
+  collectionKey?: string;
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
   timeoutMs?: number;
@@ -26,6 +27,42 @@ export interface ZoteroSearchItemsOptions extends ZoteroPageOptions {
   qmode?: ZoteroSearchMode;
   itemType?: string;
   tag?: string | readonly string[];
+}
+
+export interface ZoteroCollectionData {
+  key: string;
+  version: number;
+  name: string;
+  parentCollection: string | false;
+  [field: string]: unknown;
+}
+
+export interface ZoteroCollection {
+  key: string;
+  version: number;
+  library?: {
+    type?: string;
+    id?: number;
+    name?: string;
+    [field: string]: unknown;
+  };
+  links?: Record<string, unknown>;
+  meta?: {
+    numCollections?: number;
+    numItems?: number;
+    [field: string]: unknown;
+  };
+  data: ZoteroCollectionData;
+}
+
+export interface ZoteroCollectionEntry {
+  collection: ZoteroCollection;
+  path: string[];
+  depth: number;
+}
+
+export interface ZoteroCollectionPage extends ZoteroPage<ZoteroCollectionEntry> {
+  focusedCollectionKey: string | null;
 }
 
 export interface ZoteroPage<T> {

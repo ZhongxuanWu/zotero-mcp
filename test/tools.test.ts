@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ZoteroApiError } from "../src/zotero/errors.js";
-import type { ZoteroItem, ZoteroPage } from "../src/zotero/types.js";
+import type {
+  ZoteroCollection,
+  ZoteroItem,
+  ZoteroPage,
+} from "../src/zotero/types.js";
 import {
   getFulltext,
   getFulltextInputSchema,
 } from "../src/tools/get-fulltext.js";
 import { getItem, getItemInputSchema } from "../src/tools/get-item.js";
+import {
+  listCollections,
+  listCollectionsInputSchema,
+} from "../src/tools/list-collections.js";
 import {
   searchItems,
   searchItemsInputSchema,
@@ -43,10 +51,31 @@ function page(
   };
 }
 
+function collection(
+  key: string,
+  name: string,
+  parentCollection: string | false = false,
+): ZoteroCollection {
+  return {
+    key,
+    version: 1,
+    meta: { numItems: 2, numCollections: 1 },
+    data: { key, version: 1, name, parentCollection },
+  };
+}
+
 function mockClient(
   overrides: Partial<ZoteroToolClient> = {},
 ): ZoteroToolClient {
   return {
+    listCollections: vi.fn(async () => ({
+      items: [],
+      totalResults: 0,
+      start: 0,
+      limit: 50,
+      nextStart: null,
+      focusedCollectionKey: null,
+    })),
     searchItems: vi.fn(async () => page([])),
     getItem: vi.fn(async (key) => item(key)),
     getItemChildren: vi.fn(async () => page([])),
@@ -54,6 +83,56 @@ function mockClient(
     ...overrides,
   };
 }
+
+describe("zotero_list_collections", () => {
+  it("returns bounded collection paths and focus metadata", async () => {
+    const root = collection("ROOT1234", "Research");
+    const child = collection("CHILD123", "Methods", root.key);
+    const listCollectionsMock = vi.fn(async () => ({
+      items: [
+        { collection: root, path: ["Research"], depth: 0 },
+        {
+          collection: child,
+          path: ["Research", "Methods"],
+          depth: 1,
+        },
+      ],
+      totalResults: 3,
+      start: 0,
+      limit: 2,
+      nextStart: 2,
+      focusedCollectionKey: root.key,
+    }));
+    const client = mockClient({ listCollections: listCollectionsMock });
+
+    const result = await listCollections(
+      client,
+      listCollectionsInputSchema.parse({ limit: 2 }),
+    );
+
+    expect(listCollectionsMock).toHaveBeenCalledWith({ limit: 2, start: 0 });
+    expect(result.structuredContent).toMatchObject({
+      focused_collection_key: "ROOT1234",
+      total_results: 3,
+      returned: 2,
+      next_start: 2,
+      collections: [
+        {
+          key: "ROOT1234",
+          path: ["Research"],
+          depth: 0,
+          parent_collection_key: null,
+        },
+        {
+          key: "CHILD123",
+          path: ["Research", "Methods"],
+          depth: 1,
+          parent_collection_key: "ROOT1234",
+        },
+      ],
+    });
+  });
+});
 
 function structured(result: Awaited<ReturnType<typeof searchItems>>) {
   return result.structuredContent as Record<string, unknown>;

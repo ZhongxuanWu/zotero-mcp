@@ -1,5 +1,11 @@
 {
   "groupId": 4445743,
+  "collection": {
+    "key": "KABRRWH7",
+    "name": "Systems Neuroscience",
+    "outsideItemKey": "MTAU9I5N",
+    "outsideItemTitle": "First-Order Dynamic Logic"
+  },
   "item": {
     "key": "HWTX2PGZ",
     "title": "Computational Investigation of Contributions from Different Subtypes of Interneurons in Prefrontal Cortex for Information Maintenance",

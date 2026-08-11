@@ -8,6 +8,7 @@ export type ZoteroApiErrorCode =
   | "network_error"
   | "invalid_response"
   | "invalid_request"
+  | "outside_collection_scope"
   | "request_failed";
 
 export interface ZoteroApiErrorOptions {

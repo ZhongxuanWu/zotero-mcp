@@ -21,6 +21,7 @@ const CLOSE_TIMEOUT_MS = 5_000;
 const FULLTEXT_CHUNK_SIZE = 256;
 const MAX_CAPTURED_STDERR_CHARS = 32_000;
 const TOOL_NAMES = [
+  "zotero_list_collections",
   "zotero_search_items",
   "zotero_get_item",
   "zotero_get_fulltext",
@@ -118,7 +119,7 @@ function loadFixture() {
   if (
     !validateExactKeys(
       rawFixture,
-      ["groupId", "item", "attachment"],
+      ["groupId", "collection", "item", "attachment"],
       "fixture",
       problems,
     )
@@ -129,6 +130,49 @@ function loadFixture() {
   const groupId = rawFixture.groupId;
   if (!Number.isSafeInteger(groupId) || groupId <= 0) {
     problems.push("groupId must be a positive integer");
+  }
+
+  const collection = rawFixture.collection;
+  const collectionIsRecord = validateExactKeys(
+    collection,
+    ["key", "name", "outsideItemKey", "outsideItemTitle"],
+    "collection",
+    problems,
+  );
+  const collectionKey = collectionIsRecord
+    ? readRequiredString(collection.key, "collection.key", problems, {
+        minimumLength: 8,
+        maximumLength: 8,
+      })
+    : undefined;
+  const collectionName = collectionIsRecord
+    ? readRequiredString(collection.name, "collection.name", problems, {
+        maximumLength: 256,
+      })
+    : undefined;
+  const outsideItemKey = collectionIsRecord
+    ? readRequiredString(
+        collection.outsideItemKey,
+        "collection.outsideItemKey",
+        problems,
+        { minimumLength: 8, maximumLength: 8 },
+      )
+    : undefined;
+  const outsideItemTitle = collectionIsRecord
+    ? readRequiredString(
+        collection.outsideItemTitle,
+        "collection.outsideItemTitle",
+        problems,
+        { maximumLength: 512 },
+      )
+    : undefined;
+  for (const [key, field] of [
+    [collectionKey, "collection.key"],
+    [outsideItemKey, "collection.outsideItemKey"],
+  ]) {
+    if (key !== undefined && !/^[A-Z0-9]{8}$/.test(key)) {
+      problems.push(`${field} must be an eight-character Zotero object key`);
+    }
   }
 
   const item = rawFixture.item;
@@ -244,6 +288,12 @@ function loadFixture() {
 
   return {
     groupId,
+    collection: {
+      key: collectionKey,
+      name: collectionName,
+      outsideItemKey,
+      outsideItemTitle,
+    },
     item: { key: itemKey, title, itemType, tag },
     attachment: {
       key: attachmentKey,
@@ -260,7 +310,7 @@ function throwFixtureError(problems) {
   throw new FixtureConfigurationError(
     [
       "The committed public Zotero E2E fixture is invalid.",
-      `Update ${fixturePath} only after verifying the pinned public group, item, attachment, searches, and extracted text against the Zotero API.`,
+      `Update ${fixturePath} only after verifying the pinned public group, collection scope, item, attachment, searches, and extracted text against the Zotero API.`,
       `Place firstChunkText within extracted characters 0-${String(FULLTEXT_CHUNK_SIZE - 1)}, and continuationText within characters ${String(FULLTEXT_CHUNK_SIZE)}-${String(FULLTEXT_CHUNK_SIZE * 2 - 1)}.`,
       "Invalid or missing fields:",
       ...problems.map((problem) => `- ${problem}`),
@@ -468,6 +518,62 @@ async function verifyProtocol(client, packageVersion) {
 }
 
 async function verifyFixtureTools(client, fixture) {
+  const collectionList = structuredToolOutput(
+    await callTool(client, "zotero_list_collections", {
+      limit: 10,
+      start: 0,
+    }),
+    "zotero_list_collections",
+  );
+  const collections = requireArray(
+    collectionList.collections,
+    "collection list",
+  ).map((value, index) =>
+    requireRecord(value, `collection list item ${index}`),
+  );
+  invariant(
+    collectionList.focused_collection_key === fixture.collection.key &&
+      collectionList.total_results === 1 &&
+      collectionList.next_start === null &&
+      collections.length === 1 &&
+      collections[0].key === fixture.collection.key &&
+      collections[0].name === fixture.collection.name &&
+      inspect(collections[0].path) === inspect([fixture.collection.name]) &&
+      collections[0].depth === 0,
+    `Expected only the configured public collection scope; received ${inspect(collectionList)}.`,
+  );
+
+  const outsideSearch = structuredToolOutput(
+    await callTool(client, "zotero_search_items", {
+      query: fixture.collection.outsideItemTitle,
+      limit: 10,
+    }),
+    "zotero_search_items(outside scope)",
+  );
+  invariant(
+    outsideSearch.total_results === 0 &&
+      requireArray(outsideSearch.items, "outside-scope search items").length ===
+        0,
+    `Expected collection search to hide the outside item; received ${inspect(outsideSearch)}.`,
+  );
+
+  const outsideItemResult = await callTool(client, "zotero_get_item", {
+    item_key: fixture.collection.outsideItemKey,
+  });
+  const outsideError = requireRecord(
+    requireRecord(
+      outsideItemResult.structuredContent,
+      "outside-scope structured output",
+    ).error,
+    "outside-scope error",
+  );
+  invariant(
+    outsideItemResult.isError === true &&
+      outsideError.code === "outside_collection_scope" &&
+      !inspect(outsideItemResult).includes(fixture.collection.outsideItemTitle),
+    `Expected direct outside-scope access to fail without leaking item metadata; received ${inspect(outsideItemResult)}.`,
+  );
+
   const metadataSearch = structuredToolOutput(
     await callTool(client, "zotero_search_items", {
       query: fixture.item.title,
@@ -780,6 +886,8 @@ async function runEndToEnd() {
       ...(process.platform === "win32" ? [installedEntryPath] : []),
       "--library",
       `group:${String(fixture.groupId)}`,
+      "--collection",
+      fixture.collection.key,
     ];
 
     transport = new StdioClientTransport({
@@ -807,7 +915,7 @@ async function runEndToEnd() {
     console.log("Reading the credential-free public Zotero fixture...");
     const keys = await verifyFixtureTools(client, fixture);
     console.log(
-      `Public Zotero E2E passed for group ${String(fixture.groupId)} (item ${keys.parentKey}, attachment ${keys.attachmentKey}) using ${basename(tarballPath)}.`,
+      `Public Zotero E2E passed for group ${String(fixture.groupId)}, collection ${fixture.collection.key} (item ${keys.parentKey}, attachment ${keys.attachmentKey}) using ${basename(tarballPath)}.`,
     );
   } catch (error) {
     const diagnostic = serverStderr.trim();
